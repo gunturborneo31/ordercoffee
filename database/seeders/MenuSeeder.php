@@ -29,7 +29,16 @@ class MenuSeeder extends Seeder
         ];
 
         foreach ($menus as $menu) {
-            Menu::create(array_merge($menu, ['is_available' => true]));
+            $defaultImage = match ($menu['category']) {
+                'coffee' => '/images/menu/default-coffee.svg',
+                'non-coffee' => '/images/menu/default-non-coffee.svg',
+                default => '/images/menu/default-food.svg',
+            };
+
+            Menu::create(array_merge($menu, [
+                'is_available' => true,
+                'image_url' => $defaultImage,
+            ]));
         }
     }
 }

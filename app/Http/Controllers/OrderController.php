@@ -6,15 +6,16 @@ use App\Models\Customer;
 use App\Models\Menu;
 use App\Models\Order;
 use App\Models\OrderItem;
-use App\Services\QrisService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class OrderController extends Controller
 {
-    public function store(Request $request, QrisService $qris)
+    public function store(Request $request)
     {
         $validated = $request->validate([
             'customer_id' => 'required|exists:customers,id',
+            'delivery_location' => 'required|string|max:255',
             'items' => 'required|array|min:1',
             'items.*.menu_id' => 'required|exists:menus,id',
             'items.*.quantity' => 'required|integer|min:1',
@@ -23,6 +24,7 @@ class OrderController extends Controller
 
         $order = Order::create([
             'customer_id' => $validated['customer_id'],
+            'delivery_location' => $validated['delivery_location'],
             'status' => 'pending',
             'total' => 0,
         ]);
@@ -55,11 +57,27 @@ class OrderController extends Controller
         return view('order', compact('order'));
     }
 
+    public function history()
+    {
+        return view('history');
+    }
+
     public function apiShow(Order $order)
     {
         $order->load(['items.menu', 'customer', 'messages']);
 
         return response()->json($order);
+    }
+
+    public function apiHistory(Customer $customer)
+    {
+        $orders = $customer->orders()
+            ->with(['items.menu'])
+            ->withCount('items')
+            ->latest()
+            ->get();
+
+        return response()->json($orders);
     }
 
     public function updateItems(Request $request, Order $order)
@@ -95,7 +113,7 @@ class OrderController extends Controller
         return response()->json(['success' => true, 'order' => $order]);
     }
 
-    public function updateStatus(Request $request, Order $order, QrisService $qris)
+    public function updateStatus(Request $request, Order $order)
     {
         $validated = $request->validate([
             'status' => 'required|in:reviewing,confirmed,ready,completed,cancelled',
@@ -104,16 +122,34 @@ class OrderController extends Controller
 
         $data = ['status' => $validated['status']];
 
-        if ($validated['status'] === 'confirmed') {
-            $staticQris = $validated['qris_static'] ?? config('app.qris_static', '');
-            if ($staticQris) {
-                $data['qris_string'] = $qris->generateWithAmount($staticQris, (int) $order->total);
-            }
-        }
-
         $order->update($data);
         $order->load(['items.menu', 'customer']);
 
         return response()->json(['success' => true, 'order' => $order]);
+    }
+
+    public function uploadQrisProof(Request $request, Order $order)
+    {
+        $validated = $request->validate([
+            'proof' => 'required|image|mimes:jpg,jpeg,png,webp|max:3072',
+        ]);
+
+        if ($order->qris_proof_path) {
+            Storage::disk('public')->delete($order->qris_proof_path);
+        }
+
+        $path = $validated['proof']->store('qris-proofs', 'public');
+
+        $order->update([
+            'qris_proof_path' => $path,
+        ]);
+
+        $order->load(['items.menu', 'customer', 'messages']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Bukti pembayaran berhasil diupload.',
+            'order' => $order,
+        ]);
     }
 }

@@ -37,6 +37,15 @@
         {{-- Order Summary --}}
         <div class="bg-white rounded-2xl p-5 shadow-sm border border-stone-100">
             <h2 class="text-sm font-semibold text-stone-500 uppercase tracking-wider mb-3">Rincian Pesanan</h2>
+            <template x-if="order.delivery_location">
+                <div class="flex items-center gap-2 mb-3 bg-amber-50 rounded-xl px-3 py-2">
+                    <svg class="w-4 h-4 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                    <span class="text-sm text-amber-800 font-medium" x-text="order.delivery_location"></span>
+                </div>
+            </template>
             <div class="space-y-2">
                 <template x-for="item in order.items" :key="item.id">
                     <div class="flex items-start justify-between gap-3">
@@ -55,16 +64,48 @@
         </div>
 
         {{-- QRIS Payment --}}
-        <template x-if="order.status === 'confirmed' && order.qris_string">
+        <template x-if="['confirmed', 'ready'].includes(order.status)">
             <div class="bg-white rounded-2xl p-5 shadow-sm border border-amber-100 text-center">
                 <h2 class="text-sm font-semibold text-stone-500 uppercase tracking-wider mb-3">Pembayaran QRIS</h2>
                 <p class="text-sm text-stone-500 mb-4">Scan QR di bawah dengan aplikasi bank atau e-wallet kamu</p>
                 <div class="flex justify-center mb-4">
-                    <canvas id="qr-canvas" class="rounded-xl shadow-md"></canvas>
+                    <img :src="qrisImageUrl" alt="QRIS" class="w-60 h-60 object-contain rounded-xl shadow-md bg-white p-2"
+                        @@error="onQrisImageError">
                 </div>
-                <p class="text-xs text-stone-400">Nominal sudah otomatis tercantum</p>
+                <p class="text-xs text-stone-400">Silakan scan QRIS statis untuk pembayaran</p>
                 <div class="mt-3 bg-amber-50 rounded-xl px-4 py-2">
                     <p class="text-sm font-bold text-amber-700" x-text="formatPrice(order.total)"></p>
+                </div>
+
+                <div class="mt-5 text-left border-2 border-dashed border-amber-300 bg-amber-50/70 rounded-2xl p-4 animate-pulse">
+                    <div class="flex items-start gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center flex-shrink-0 shadow-sm">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                            </svg>
+                        </div>
+                        <div class="flex-1">
+                            <p class="text-sm font-bold text-amber-800">Upload bukti pembayaran di sini</p>
+                            <p class="text-xs text-amber-700 mt-1">Setelah transfer QRIS, kirim screenshot atau foto bukti agar barista cepat memproses pesananmu.</p>
+                        </div>
+                    </div>
+
+                    <input x-ref="proofInput" type="file" accept="image/png,image/jpeg,image/webp" class="hidden" @change="uploadQrisProof($event)">
+
+                    <div class="mt-4 flex flex-col sm:flex-row gap-2 sm:items-center">
+                        <button @click="$refs.proofInput.click()" :disabled="proofUploading"
+                            class="px-4 py-3 bg-amber-500 hover:bg-amber-400 disabled:bg-amber-300 text-white font-semibold rounded-xl transition text-sm shadow-sm">
+                            <span x-text="proofUploading ? 'Mengupload...' : (order.qris_proof_url ? 'Upload Ulang Bukti' : 'Pilih Bukti QRIS')"></span>
+                        </button>
+                        <span class="text-xs text-stone-500" x-text="selectedProofName || (order.qris_proof_url ? 'Bukti sudah terupload.' : 'Format: JPG, PNG, WEBP maks 3MB')"></span>
+                    </div>
+
+                    <template x-if="order.qris_proof_url">
+                        <div class="mt-4 rounded-2xl overflow-hidden border border-amber-200 bg-white">
+                            <div class="px-3 py-2 bg-amber-100 text-amber-800 text-xs font-semibold">Bukti pembayaran terkirim</div>
+                            <img :src="order.qris_proof_url" alt="Bukti pembayaran QRIS" class="w-full max-h-80 object-contain bg-white">
+                        </div>
+                    </template>
                 </div>
             </div>
         </template>
@@ -179,10 +220,15 @@ function orderApp(orderId, customerName) {
         newMessage: '',
         unreadCount: 0,
         pollInterval: null,
+        notificationPermission: 'default',
+        qrisImageUrl: @json(asset('storage/' . config('app.qris_image', 'qris.jpeg'))),
+        proofUploading: false,
+        selectedProofName: '',
 
         async init() {
-            this.renderQris();
             this.scrollChat();
+            this.notificationPermission = this.getNotificationPermission();
+            await this.ensureNotificationPermission();
             // Poll every 5 seconds
             this.pollInterval = setInterval(() => this.poll(), 5000);
         },
@@ -194,8 +240,16 @@ function orderApp(orderId, customerName) {
                 const prevStatus = this.order.status;
                 this.order = data;
                 if (prevStatus !== data.status) {
-                    this.renderQris();
                     showToast(`Status pesanan: ${this.statusLabel(data.status)}`, 'info');
+                    if (data.status === 'confirmed') {
+                        this.playNotifSound();
+                        await this.showDesktopNotification({
+                            title: 'Pesanan Dikonfirmasi',
+                            body: `Pesanan #${this.orderId} sudah dikonfirmasi barista.`,
+                            url: `/orders/${this.orderId}`,
+                            tag: `customer-order-confirmed-${this.orderId}`,
+                        });
+                    }
                 }
                 await this.loadMessages();
             } catch(e) {}
@@ -213,6 +267,12 @@ function orderApp(orderId, customerName) {
                     if (msgs[msgs.length - 1]?.sender_type === 'barista') {
                         this.playNotifSound();
                         showToast('Pesan baru dari barista!', 'info');
+                        await this.showDesktopNotification({
+                            title: 'Pesan Baru dari Barista',
+                            body: msgs[msgs.length - 1]?.content || 'Ada pesan baru untuk pesananmu.',
+                            url: `/orders/${this.orderId}`,
+                            tag: `customer-chat-${this.orderId}`,
+                        });
                     }
                 }
                 // Mark read
@@ -250,15 +310,47 @@ function orderApp(orderId, customerName) {
             }
         },
 
-        renderQris() {
-            this.$nextTick(() => {
-                if (this.order.status === 'confirmed' && this.order.qris_string) {
-                    const canvas = document.getElementById('qr-canvas');
-                    if (canvas && typeof QRCode !== 'undefined') {
-                        QRCode.toCanvas(canvas, this.order.qris_string, { width: 240, margin: 2 }, () => {});
-                    }
+        async uploadQrisProof(event) {
+            const file = event.target.files?.[0];
+            if (!file) return;
+
+            this.selectedProofName = file.name;
+            this.proofUploading = true;
+
+            try {
+                const formData = new FormData();
+                formData.append('proof', file);
+
+                const res = await fetch(`/api/orders/${this.orderId}/qris-proof`, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                        'Accept': 'application/json',
+                    },
+                    body: formData,
+                });
+
+                const data = await res.json();
+
+                if (!res.ok || !data.success) {
+                    showToast(data.message || data.error || 'Gagal upload bukti pembayaran.', 'error');
+                    return;
                 }
-            });
+
+                this.order = data.order;
+                showToast('Bukti pembayaran berhasil diupload.', 'success');
+            } catch (e) {
+                showToast('Gagal upload bukti pembayaran.', 'error');
+            } finally {
+                this.proofUploading = false;
+                if (this.$refs.proofInput) {
+                    this.$refs.proofInput.value = '';
+                }
+            }
+        },
+
+        onQrisImageError() {
+            showToast('Gambar QRIS tidak ditemukan. Pastikan file ada di storage/app/public/qris.jpeg', 'error');
         },
 
         scrollChat() {
@@ -281,6 +373,47 @@ function orderApp(orderId, customerName) {
                 osc.start(ctx.currentTime);
                 osc.stop(ctx.currentTime + 0.5);
             } catch(e) {}
+        },
+
+        getNotificationPermission() {
+            return 'Notification' in window ? Notification.permission : 'unsupported';
+        },
+
+        async ensureNotificationPermission() {
+            if (!('Notification' in window) || this.notificationPermission !== 'default') {
+                return;
+            }
+
+            try {
+                this.notificationPermission = await Notification.requestPermission();
+            } catch (e) {}
+        },
+
+        canShowDesktopNotification() {
+            return this.notificationPermission === 'granted';
+        },
+
+        async showDesktopNotification({ title, body, url, tag }) {
+            if (!this.canShowDesktopNotification()) return;
+
+            const options = {
+                body,
+                icon: '/icons/icon-192.png',
+                badge: '/icons/icon-192.png',
+                tag,
+                renotify: true,
+                data: { url },
+            };
+
+            try {
+                if ('serviceWorker' in navigator) {
+                    const registration = await navigator.serviceWorker.ready;
+                    await registration.showNotification(title, options);
+                    return;
+                }
+
+                new Notification(title, options);
+            } catch (e) {}
         },
 
         statusLabel(status) {

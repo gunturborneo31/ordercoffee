@@ -123,4 +123,7 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    'qris_static' => env('QRIS_STATIC', ''),
+    'qris_image' => env('QRIS_IMAGE', 'qris.jpeg'),
+
 ];

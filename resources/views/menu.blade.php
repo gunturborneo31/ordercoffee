@@ -13,6 +13,11 @@
                 <p class="text-xs text-stone-400" x-text="customer ? `Halo, ${customer.name}!` : 'Menu kami'"></p>
             </div>
             <div class="flex items-center gap-3">
+                <a href="/orders/history" class="p-2 bg-stone-100 rounded-xl hover:bg-stone-200 transition text-stone-600" title="Riwayat Pesanan">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                </a>
                 <button @click="showCart = true" class="relative p-2 bg-amber-50 rounded-xl hover:bg-amber-100 transition">
                     <svg class="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-4H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/>
@@ -61,49 +66,55 @@
             </div>
         </template>
 
-        <div x-show="!loading" class="grid gap-3">
+        <div x-show="!loading" class="grid gap-3 items-start" style="grid-template-columns: repeat(2, minmax(0, 1fr));">
             <template x-for="menu in filteredMenus" :key="menu.id">
-                <div class="bg-white rounded-2xl p-4 flex items-center gap-4 shadow-sm border border-stone-100 transition hover:shadow-md"
-                     :class="!menu.is_available && 'opacity-50'">
-                    {{-- Icon / Emoji --}}
-                    <div class="w-14 h-14 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
-                         :class="getCategoryBg(menu.category)">
-                        <span x-text="getCategoryEmoji(menu.category)"></span>
+                 <div class="h-full bg-white rounded-2xl p-3 shadow-sm border border-stone-100 transition hover:shadow-md"
+                     :class="!menu.is_available && 'opacity-60'">
+                    <div class="relative">
+                        <div class="aspect-square rounded-xl overflow-hidden bg-stone-100">
+                            <template x-if="menu.image_url">
+                                <img :src="menu.image_url" :alt="menu.name" class="w-full h-full object-cover">
+                            </template>
+                            <template x-if="!menu.image_url">
+                                <div class="w-full h-full flex items-center justify-center text-4xl" :class="getCategoryBg(menu.category)">
+                                    <span x-text="getCategoryEmoji(menu.category)"></span>
+                                </div>
+                            </template>
+                        </div>
                     </div>
-                    {{-- Info --}}
-                    <div class="flex-1 min-w-0">
-                        <h3 class="font-semibold text-stone-800 truncate" x-text="menu.name"></h3>
-                        <p class="text-xs text-stone-400 mt-0.5 line-clamp-1" x-text="menu.description"></p>
+
+                    <div class="pt-6 text-center">
+                        <h3 class="font-semibold text-stone-800 text-sm leading-tight line-clamp-2 min-h-[2.5rem]" x-text="menu.name"></h3>
+                        <p class="text-[11px] text-stone-400 mt-0.5" x-text="menu.category.replace('-', ' ')"></p>
                         <p class="text-sm font-bold text-amber-600 mt-1" x-text="formatPrice(menu.price)"></p>
                     </div>
-                    {{-- Add button --}}
-                    <div class="flex-shrink-0">
+
+                    <div class="mt-3 flex items-center justify-center">
                         <template x-if="!menu.is_available">
-                            <span class="text-xs text-stone-400 font-medium">Habis</span>
+                            <span class="text-xs px-2.5 py-1 rounded-full bg-stone-100 text-stone-500 font-medium">Habis</span>
                         </template>
                         <template x-if="menu.is_available">
-                            <template x-if="!getCartItem(menu.id)">
+                            <div class="flex items-center gap-1">
+                                <button x-show="getCartQty(menu.id) > 0" x-cloak
+                                    @click="decreaseCart(menu.id)"
+                                    class="w-7 h-7 bg-stone-100 hover:bg-stone-200 rounded-lg flex items-center justify-center transition text-stone-600 font-bold">-</button>
+                                <span x-show="getCartQty(menu.id) > 0" x-cloak
+                                    class="w-6 text-center text-sm font-bold text-stone-800"
+                                    x-text="getCartQty(menu.id)"></span>
                                 <button @click="addToCart(menu)"
-                                    class="w-9 h-9 bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-white rounded-xl flex items-center justify-center transition shadow">
+                                    class="w-8 h-8 bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-white rounded-lg flex items-center justify-center transition shadow">
                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
                                     </svg>
                                 </button>
-                            </template>
-                            <template x-if="getCartItem(menu.id)">
-                                <div class="flex items-center gap-1">
-                                    <button @click="decreaseCart(menu.id)" class="w-7 h-7 bg-stone-100 hover:bg-stone-200 rounded-lg flex items-center justify-center transition text-stone-600 font-bold">−</button>
-                                    <span class="w-6 text-center text-sm font-bold text-stone-800" x-text="getCartItem(menu.id).quantity"></span>
-                                    <button @click="addToCart(menu)" class="w-7 h-7 bg-amber-500 hover:bg-amber-400 rounded-lg flex items-center justify-center transition text-white font-bold">+</button>
-                                </div>
-                            </template>
+                            </div>
                         </template>
                     </div>
                 </div>
             </template>
 
             <template x-if="filteredMenus.length === 0 && !loading">
-                <p class="text-center text-stone-400 py-12">Tidak ada menu di kategori ini.</p>
+                <p class="col-span-2 text-center text-stone-400 py-12">Tidak ada menu di kategori ini.</p>
             </template>
         </div>
     </main>
@@ -165,11 +176,16 @@
 
             {{-- Cart footer --}}
             <div class="p-5 border-t border-stone-100 space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold text-stone-600 uppercase tracking-wider mb-1.5">Diantar Kemana?</label>
+                    <input type="text" x-model="deliveryLocation" placeholder="Contoh: Meja 3, Kantor lantai 2..."
+                        class="w-full px-3 py-2.5 border border-stone-200 rounded-xl text-sm text-stone-800 placeholder-stone-300 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                </div>
                 <div class="flex items-center justify-between">
                     <span class="text-stone-600 font-medium">Total</span>
                     <span class="text-xl font-bold text-stone-900" x-text="formatPrice(cartTotal)"></span>
                 </div>
-                <button @click="placeOrder" :disabled="orderLoading"
+                <button @click="placeOrder" :disabled="orderLoading || !deliveryLocation.trim()"
                     class="w-full py-4 bg-amber-500 hover:bg-amber-400 disabled:bg-amber-300 text-white font-semibold rounded-2xl transition flex items-center justify-center gap-2 shadow">
                     <svg x-show="orderLoading" class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -195,6 +211,7 @@ function menuApp() {
         showCart: false,
         loading: true,
         orderLoading: false,
+        deliveryLocation: '',
 
         get filteredMenus() {
             if (this.activeCategory === 'all') return this.menus;
@@ -242,6 +259,11 @@ function menuApp() {
             return this.cart.find(i => i.menu.id === menuId);
         },
 
+        getCartQty(menuId) {
+            const item = this.getCartItem(menuId);
+            return item ? item.quantity : 0;
+        },
+
         addToCart(menu) {
             const existing = this.getCartItem(menu.id);
             if (existing) {
@@ -286,6 +308,7 @@ function menuApp() {
                     },
                     body: JSON.stringify({
                         customer_id: this.customer.id,
+                        delivery_location: this.deliveryLocation.trim(),
                         items,
                     }),
                 });
@@ -293,6 +316,7 @@ function menuApp() {
                 if (data.success) {
                     localStorage.removeItem('kafe_cart');
                     this.cart = [];
+                    this.deliveryLocation = '';
                     this.showCart = false;
                     window.location.href = `/orders/${data.order.id}`;
                 } else {

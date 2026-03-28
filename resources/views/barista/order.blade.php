@@ -38,6 +38,16 @@
                 </button>
             </div>
 
+            <template x-if="order.delivery_location">
+                <div class="flex items-center gap-2 mb-3 bg-amber-500/10 rounded-xl px-3 py-2">
+                    <svg class="w-4 h-4 text-amber-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                    <span class="text-sm text-amber-300 font-medium" x-text="order.delivery_location"></span>
+                </div>
+            </template>
+
             {{-- View mode --}}
             <template x-if="!editMode">
                 <div class="space-y-2">
@@ -107,29 +117,34 @@
             </div>
         </div>
 
+        <template x-if="order.qris_proof_url">
+            <div class="bg-stone-800 rounded-2xl p-5 border border-stone-700">
+                <div class="flex items-center justify-between gap-3 mb-3">
+                    <div>
+                        <h2 class="text-sm font-semibold text-stone-300 uppercase tracking-wider">Bukti QRIS Customer</h2>
+                        <p class="text-xs text-stone-500 mt-1">Customer sudah mengupload bukti pembayaran.</p>
+                    </div>
+                    <a :href="order.qris_proof_url" target="_blank"
+                        class="px-3 py-2 bg-stone-700 hover:bg-stone-600 text-stone-200 rounded-xl text-xs font-medium transition">
+                        Buka Gambar
+                    </a>
+                </div>
+
+                <div class="rounded-2xl overflow-hidden border border-stone-700 bg-stone-900/40">
+                    <img :src="order.qris_proof_url" alt="Bukti pembayaran customer" class="w-full max-h-[26rem] object-contain bg-white">
+                </div>
+            </div>
+        </template>
+
         {{-- Action Buttons --}}
         <div class="bg-stone-800 rounded-2xl p-5 border border-stone-700 space-y-3">
             <h2 class="text-sm font-semibold text-stone-300 uppercase tracking-wider mb-3">Aksi Pesanan</h2>
 
-            <template x-if="order.status === 'pending'">
-                <button @click="updateStatus('reviewing')"
-                    class="w-full py-3 bg-amber-500 hover:bg-amber-400 text-white font-semibold rounded-xl transition">
-                    👀 Mulai Tinjau Pesanan
-                </button>
-            </template>
-
-            <template x-if="order.status === 'reviewing'">
+            <template x-if="['pending', 'reviewing'].includes(order.status)">
                 <div class="space-y-3">
-                    <div>
-                        <label class="block text-xs font-semibold text-stone-400 uppercase tracking-wider mb-2">QRIS Statis (opsional)</label>
-                        <textarea x-model="qrisStatic" rows="3"
-                            placeholder="Tempel string QRIS statis kamu di sini..."
-                            class="w-full text-xs px-3 py-2 bg-stone-700 border border-stone-600 rounded-xl text-stone-300 placeholder-stone-500 focus:outline-none focus:ring-1 focus:ring-amber-400 resize-none"></textarea>
-                        <p class="text-xs text-stone-500 mt-1">Nominal akan otomatis disisipkan ke QRIS</p>
-                    </div>
                     <button @click="confirmOrder"
                         class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl transition">
-                        ✅ Konfirmasi & Generate QRIS
+                        ✅ Konfirmasi Pesanan
                     </button>
                     <button @click="updateStatus('cancelled')"
                         class="w-full py-3 bg-stone-700 hover:bg-red-900/50 text-stone-300 hover:text-red-300 font-semibold rounded-xl transition">
@@ -142,7 +157,8 @@
                 <div class="space-y-3">
                     <div class="bg-stone-700/50 rounded-xl p-4 text-center">
                         <p class="text-sm text-stone-300 mb-3">QR Code telah dikirim ke customer</p>
-                        <canvas id="qr-canvas-barista" class="mx-auto rounded-xl shadow-md"></canvas>
+                        <img :src="qrisImageUrl" alt="QRIS" class="w-52 h-52 object-contain mx-auto rounded-xl shadow-md bg-white p-2"
+                            @@error="onQrisImageError">
                     </div>
                     <button @click="updateStatus('ready')"
                         class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl transition">
@@ -211,8 +227,10 @@ function baristaOrderApp(orderId) {
         editItems: [],
         editSaving: false,
         newMessage: '',
-        qrisStatic: '',
+        qrisImageUrl: @json(asset('storage/' . config('app.qris_image', 'qris.jpeg'))),
         unreadCount: 0,
+        desktopNotificationsEnabled: false,
+        notificationPermission: 'default',
 
         get canEdit() {
             return ['pending', 'reviewing'].includes(this.order.status);
@@ -224,10 +242,22 @@ function baristaOrderApp(orderId) {
 
         async init() {
             this.setupEditItems();
-            this.renderQris();
             this.scrollChat();
+            this.loadNotificationSettings();
             await this.loadMenus();
             setInterval(() => this.poll(), 5000);
+        },
+
+        loadNotificationSettings() {
+            this.notificationPermission = this.getNotificationPermission();
+
+            const saved = localStorage.getItem('barista_notif_settings');
+            if (!saved) return;
+
+            try {
+                const settings = JSON.parse(saved);
+                this.desktopNotificationsEnabled = settings.desktopNotificationsEnabled ?? false;
+            } catch(e) {}
         },
 
         setupEditItems() {
@@ -256,11 +286,7 @@ function baristaOrderApp(orderId) {
                 const orderData = await orderRes.json();
                 const msgs = await msgRes.json();
 
-                const prevStatus = this.order.status;
                 this.order = orderData;
-                if (prevStatus !== orderData.status) {
-                    this.renderQris();
-                }
 
                 const prevCount = this.messages.length;
                 this.messages = msgs;
@@ -271,6 +297,12 @@ function baristaOrderApp(orderId) {
                     if (msgs[msgs.length-1]?.sender_type === 'customer') {
                         this.playNotif();
                         showToast('Pesan baru dari customer!', 'info');
+                        await this.showDesktopNotification({
+                            title: 'Pesan Baru dari Customer',
+                            body: msgs[msgs.length - 1]?.content || 'Ada pesan baru pada pesanan ini.',
+                            url: `/barista/orders/${this.orderId}`,
+                            tag: `barista-chat-${this.orderId}`,
+                        });
                     }
                 }
 
@@ -296,18 +328,22 @@ function baristaOrderApp(orderId) {
                     body: JSON.stringify({ status, ...extra }),
                 });
                 const data = await res.json();
-                if (data.success) {
+                if (res.ok && data.success) {
                     this.order = data.order;
-                    this.renderQris();
                     showToast(`Status: ${this.statusLabel(status)}`, 'success');
+                    return true;
                 }
+
+                showToast(data.error || 'Gagal memperbarui status.', 'error');
+                return false;
             } catch(e) {
                 showToast('Gagal memperbarui.', 'error');
+                return false;
             }
         },
 
         async confirmOrder() {
-            await this.updateStatus('confirmed', { qris_static: this.qrisStatic });
+            await this.updateStatus('confirmed');
         },
 
         async saveEdit() {
@@ -384,15 +420,8 @@ function baristaOrderApp(orderId) {
             }
         },
 
-        renderQris() {
-            this.$nextTick(() => {
-                if (this.order.status === 'confirmed' && this.order.qris_string) {
-                    const canvas = document.getElementById('qr-canvas-barista');
-                    if (canvas && typeof QRCode !== 'undefined') {
-                        QRCode.toCanvas(canvas, this.order.qris_string, { width: 200, margin: 2 }, () => {});
-                    }
-                }
-            });
+        onQrisImageError() {
+            showToast('Gambar QRIS tidak ditemukan. Pastikan file ada di storage/app/public/qris.jpeg', 'error');
         },
 
         scrollChat() {
@@ -415,6 +444,37 @@ function baristaOrderApp(orderId) {
                 osc.start(ctx.currentTime);
                 osc.stop(ctx.currentTime + 0.4);
             } catch(e) {}
+        },
+
+        getNotificationPermission() {
+            return 'Notification' in window ? Notification.permission : 'unsupported';
+        },
+
+        canShowDesktopNotification() {
+            return this.desktopNotificationsEnabled && this.notificationPermission === 'granted';
+        },
+
+        async showDesktopNotification({ title, body, url, tag }) {
+            if (!this.canShowDesktopNotification()) return;
+
+            const options = {
+                body,
+                icon: '/icons/icon-192.png',
+                badge: '/icons/icon-192.png',
+                tag,
+                renotify: true,
+                data: { url },
+            };
+
+            try {
+                if ('serviceWorker' in navigator) {
+                    const registration = await navigator.serviceWorker.ready;
+                    await registration.showNotification(title, options);
+                    return;
+                }
+
+                new Notification(title, options);
+            } catch (e) {}
         },
 
         statusLabel(status) {

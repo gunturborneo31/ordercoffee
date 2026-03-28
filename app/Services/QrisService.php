@@ -10,11 +10,17 @@ class QrisService
      */
     public function generateWithAmount(string $staticQris, int $amount): string
     {
-        // Remove the last 4 characters (CRC) from static QRIS
-        $qrisWithoutCrc = substr($staticQris, 0, -4);
+        // Normalize payload and remove full CRC segment (6304 + 4 hex)
+        $normalized = preg_replace('/\s+/', '', trim($staticQris)) ?? '';
+        $qrisWithoutCrc = preg_replace('/6304[0-9A-F]{4}$/i', '', $normalized) ?? $normalized;
+        $qrisWithoutCrc = preg_replace('/6304$/', '', $qrisWithoutCrc) ?? $qrisWithoutCrc;
+
+        if ($qrisWithoutCrc === '') {
+            throw new \InvalidArgumentException('Payload QRIS statis kosong atau tidak valid.');
+        }
 
         // Change tag 01 (point-of-initiation) from 11 (static) to 12 (dynamic) so amount is embedded
-        $qrisWithoutCrc = str_replace('010211', '010212', $qrisWithoutCrc);
+        $qrisWithoutCrc = preg_replace('/010211/', '010212', $qrisWithoutCrc, 1) ?? $qrisWithoutCrc;
 
         // Build tag 54 (Transaction Amount)
         $amountStr = (string) $amount;
