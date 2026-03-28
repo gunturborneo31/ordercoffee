@@ -1,0 +1,37 @@
+{
+    "name": "Kafe Kita",
+    "short_name": "KafeKita",
+    "description": "Aplikasi pemesanan kafe modern",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#1c1917",
+    "theme_color": "#1a1a2e",
+    "orientation": "portrait",
+    "icons": [
+        {
+            "src": "/icons/icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/icons/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ],
+    "categories": ["food", "shopping"],
+    "shortcuts": [
+        {
+            "name": "Pesan Sekarang",
+            "url": "/menu",
+            "description": "Lihat menu dan pesan"
+        },
+        {
+            "name": "Dashboard Barista",
+            "url": "/barista",
+            "description": "Panel barista"
+        }
+    ]
+}
